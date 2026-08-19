@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import re
 import sys
+import time
 from pathlib import Path
 
 import chromadb
@@ -94,7 +95,7 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
                           for i in range(1, len(pieces))]
 
 
-@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=60))
+@retry(stop=stop_after_attempt(8), wait=wait_exponential(min=5, max=120))
 def embed_batch(client: genai.Client, texts: list[str], task: str) -> list[list[float]]:
     """Embed a batch, retrying through the free tier's rate limits.
 
@@ -164,19 +165,34 @@ def main() -> int:
         print(f"\nIndex already current ({len(existing)} chunks).")
         return 0
 
+    # The free tier meters individual texts, not calls: a batch of 25 spends 25
+    # of the 100-per-minute allowance. Retrying into a per-minute quota mostly
+    # burns the quota again, so the loop paces itself to stay under the limit
+    # and keeps retries for genuine transient failures.
     print(f"\nEmbedding {len(pending_texts)} new chunks...")
-    BATCH = 50
+    BATCH = 25
+    RATE_LIMIT_PER_MIN = 100
+    SAFETY = 0.75
+
     for start in range(0, len(pending_texts), BATCH):
         stop = start + BATCH
-        vectors = embed_batch(client, pending_texts[start:stop],
-                              "RETRIEVAL_DOCUMENT")
+        batch = pending_texts[start:stop]
+        began = time.monotonic()
+
+        vectors = embed_batch(client, batch, "RETRIEVAL_DOCUMENT")
         collection.add(
             ids=pending_ids[start:stop],
-            documents=pending_texts[start:stop],
+            documents=batch,
             metadatas=pending_meta[start:stop],
             embeddings=vectors,
         )
         print(f"  indexed {min(stop, len(pending_texts))}/{len(pending_texts)}")
+
+        if stop < len(pending_texts):
+            budget = len(batch) * 60.0 / (RATE_LIMIT_PER_MIN * SAFETY)
+            pause = budget - (time.monotonic() - began)
+            if pause > 0:
+                time.sleep(pause)
 
     print(f"\nDone. Collection holds {collection.count()} chunks.")
     return 0

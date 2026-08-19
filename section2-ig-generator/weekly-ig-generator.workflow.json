@@ -1,4 +1,5 @@
 {
+  "id": "3784e5f6e2935e",
   "name": "Rumah123 Weekly IG Post Generator",
   "nodes": [
     {
@@ -16,7 +17,7 @@
           ]
         }
       },
-      "id": "weekly-monday-08:00",
+      "id": "eb1b70d3-a4fb-5abe-937a-9e690d1662c6",
       "name": "Weekly Monday 08:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -30,7 +31,7 @@
         "url": "https://rss.tempo.co/bisnis",
         "options": {}
       },
-      "id": "tempo-bisnis",
+      "id": "0ed9b052-ed8c-54b6-9aa0-2dfba2c21726",
       "name": "Tempo Bisnis",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1.1,
@@ -44,7 +45,7 @@
         "url": "https://finance.detik.com/properti/rss",
         "options": {}
       },
-      "id": "detik-properti",
+      "id": "bd1d0815-c4ba-5898-b4c5-d7dc1f6ffd5c",
       "name": "Detik Properti",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1.1,
@@ -58,7 +59,7 @@
         "url": "https://www.cnbcindonesia.com/market/rss",
         "options": {}
       },
-      "id": "cnbc-market",
+      "id": "a7bdbc20-5688-5edb-b2a6-be30ecfece5d",
       "name": "CNBC Market",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1.1,
@@ -71,7 +72,7 @@
       "parameters": {
         "numberInputs": 3
       },
-      "id": "merge-feeds",
+      "id": "5f5391bd-8a0d-5cea-be9c-9e4f03805047",
       "name": "Merge Feeds",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
@@ -84,7 +85,7 @@
       "parameters": {
         "jsCode": "// Normalise three feed shapes into one, drop anything older than a week.\nconst WINDOW_DAYS = 7;\nconst cutoff = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;\n\nreturn $input.all().flatMap((item) => {\n  const d = item.json;\n  const link = d.link || d.guid || '';\n  if (!link) return [];\n\n  const published = new Date(d.isoDate || d.pubDate || Date.now());\n  if (published.getTime() < cutoff) return [];\n\n  // Feeds return HTML fragments of wildly different lengths; the model only\n  // needs enough to judge the story, and trimming here keeps token cost flat.\n  const snippet = String(d.contentSnippet || d.content || d.description || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1200);\n\n  let source = 'unknown';\n  try { source = new URL(link).hostname.replace(/^www\\./, ''); } catch (e) {}\n\n  return [{\n    json: {\n      title: String(d.title || '').trim(),\n      link,\n      source,\n      isoDate: published.toISOString(),\n      contentSnippet: snippet,\n    },\n  }];\n});"
       },
-      "id": "normalise-&-window",
+      "id": "bc835c18-4344-5553-8e01-e5b8495287ed",
       "name": "Normalise & Window",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -100,7 +101,7 @@
         "dedupeValue": "={{ $json.link }}",
         "options": {}
       },
-      "id": "drop-seen-stories",
+      "id": "13c26b0a-e5fd-5e3f-b694-38acad01e9f1",
       "name": "Drop Seen Stories",
       "type": "n8n-nodes-base.removeDuplicates",
       "typeVersion": 2,
@@ -113,7 +114,7 @@
       "parameters": {
         "maxItems": 3
       },
-      "id": "top-3-stories",
+      "id": "ab8e7f41-b9b6-5894-8afe-88c7d2f0c73e",
       "name": "Top 3 Stories",
       "type": "n8n-nodes-base.limit",
       "typeVersion": 1,
@@ -128,7 +129,7 @@
         "text": "=You are the editor deciding whether a property news item is worth an Instagram post for Rumah123.\n\nReject an item when it is: a corporate announcement with no reader benefit, a thinly rewritten press release, purely political, older than roughly a week, or so thin that a caption would have to invent the substance.\n\nAccept when a real person searching for a home would be better off knowing this.\n\nARTICLE\nTitle: {{ $json.title }}\nPublished: {{ $json.isoDate }}\nSource: {{ $json.source }}\nSummary: {{ $json.contentSnippet }}\n\nDecide, and if you accept it, name the angle and the audience it serves.",
         "hasOutputParser": true
       },
-      "id": "score-newsworthiness",
+      "id": "4e690edc-ec8c-515c-bf13-9e0503c5e1d7",
       "name": "Score Newsworthiness",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
@@ -144,7 +145,7 @@
           "temperature": 0.2
         }
       },
-      "id": "gemini---editor",
+      "id": "566f6b0b-f96f-54d8-97d2-3ff37061f7fc",
       "name": "Gemini - Editor",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
@@ -164,7 +165,7 @@
         "schemaType": "manual",
         "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"relevant\": {\n      \"type\": \"boolean\"\n    },\n    \"angle\": {\n      \"type\": \"string\",\n      \"description\": \"The reader-benefit angle, one sentence\"\n    },\n    \"audience\": {\n      \"type\": \"string\",\n      \"description\": \"e.g. first-time buyer, investor, renter\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Why accepted or rejected, one sentence\"\n    }\n  },\n  \"required\": [\n    \"relevant\",\n    \"angle\",\n    \"audience\",\n    \"reason\"\n  ]\n}"
       },
-      "id": "editor-schema",
+      "id": "6bf4f686-fb80-5558-b20a-df7582b97427",
       "name": "Editor Schema",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.2,
@@ -198,7 +199,7 @@
         },
         "options": {}
       },
-      "id": "worth-posting?",
+      "id": "2dde890f-e82d-5d78-95c1-5fe68ab758ba",
       "name": "Worth Posting?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -252,7 +253,7 @@
         },
         "options": {}
       },
-      "id": "carry-brief-forward",
+      "id": "df2b9f60-6632-51b9-971d-ce6d768245c3",
       "name": "Carry Brief Forward",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -267,7 +268,7 @@
         "text": "=You write Instagram captions for Rumah123, Indonesia's largest property marketplace.\n\nBRAND VOICE\n- Warm, plain-spoken Bahasa Indonesia. Write the way a knowledgeable friend explains something, not the way a brochure sells something.\n- Trustworthy above all. Rumah123 is where people make the largest financial decision of their lives. Never oversell.\n- Light and human is good. Cringey hard-sell is not.\n- Mixing in common English terms people actually use (KPR, cicilan, DP, cash flow) is natural. Forced slang is not.\n\nHARD RULES - these override everything above\n- Never promise or imply a guaranteed return, guaranteed approval, or a specific future price.\n- Never state an interest rate, price, or percentage unless it appears verbatim in the source article.\n- Never present an opinion from the article as established fact.\n- No fear-mongering (\"buruan sebelum harga naik lagi!\") and no false scarcity.\n- If the article does not support a claim, leave the claim out.\n\nSTRUCTURE\n- Hook: one scroll-stopping line, max 60 characters.\n- Body: 3-5 short paragraphs. One idea each. Blank line between them.\n- A concrete, useful takeaway the reader can act on this week.\n- CTA pointing to Rumah123 that reads as helpful, not desperate.\n- 8-12 hashtags: mix broad (#properti #rumah123) and specific to the topic and city.\n- 2-5 emoji total, used as punctuation, never as decoration.\n\n---\n\nARTICLE\nTitle: {{ $json.title }}\nSource: {{ $json.source }} ({{ $json.link }})\nSummary: {{ $json.contentSnippet }}\n\nEDITORIAL BRIEF\nAngle: {{ $json.angle }}\nTarget audience: {{ $json.audience }}\n\nWrite the Instagram post. Ground every factual claim in the article above; if the article does not support something, do not write it.",
         "hasOutputParser": true
       },
-      "id": "write-caption",
+      "id": "05caf941-9d80-5c5f-9aea-125bebd25018",
       "name": "Write Caption",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
@@ -283,7 +284,7 @@
           "temperature": 0.8
         }
       },
-      "id": "gemini---copywriter",
+      "id": "2e038c7a-89d8-5ed9-a3f8-1d72f7f5d17b",
       "name": "Gemini - Copywriter",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
@@ -303,7 +304,7 @@
         "schemaType": "manual",
         "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"hook\": {\n      \"type\": \"string\"\n    },\n    \"caption\": {\n      \"type\": \"string\",\n      \"description\": \"Full caption, hook included, ready to post\"\n    },\n    \"hashtags\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"image_prompt\": {\n      \"type\": \"string\",\n      \"description\": \"Prompt for the accompanying visual\"\n    },\n    \"claims\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Every factual claim made, for the compliance gate\"\n    }\n  },\n  \"required\": [\n    \"hook\",\n    \"caption\",\n    \"hashtags\",\n    \"image_prompt\",\n    \"claims\"\n  ]\n}"
       },
-      "id": "caption-schema",
+      "id": "59403aac-b6b9-5381-8216-da3b3f3d4d6f",
       "name": "Caption Schema",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.2,
@@ -316,7 +317,7 @@
       "parameters": {
         "jsCode": "// Deterministic guardrail in front of the model's own judgement.\n//\n// The brand rules live in the prompt, but a prompt is a request, not a\n// constraint - a model that ignores it fails silently and the post ships. These\n// patterns are the claims that would actually get Rumah123 in trouble: promised\n// returns, invented rates, and manufactured urgency. Anything caught here is\n// routed to human review rather than dropped, because a false positive should\n// cost a glance, not a story.\n\nconst BANNED = [\n  { pattern: /dijamin|garansi|pasti (untung|naik|cuan)|guaranteed/i,\n    issue: 'Promises a guaranteed outcome' },\n  { pattern: /pasti disetujui|approval dijamin/i,\n    issue: 'Promises loan approval' },\n  { pattern: /buruan sebelum|jangan sampai kehabisan|terakhir hari ini/i,\n    issue: 'Manufactured urgency or false scarcity' },\n  { pattern: /\\b\\d+(?:[.,]\\d+)?\\s*%/,\n    issue: 'States a percentage - must appear verbatim in the source' },\n];\n\nreturn $input.all().map((item) => {\n  const post = item.json.output ?? item.json;\n  const caption = String(post.caption || '');\n  const article = String(item.json.contentSnippet || '');\n\n  const issues = [];\n  for (const { pattern, issue } of BANNED) {\n    const hit = caption.match(pattern);\n    if (!hit) continue;\n    // A percentage quoted straight from the article is legitimate.\n    if (issue.startsWith('States a percentage') && article.includes(hit[0])) continue;\n    issues.push(`${issue} -> \"${hit[0]}\"`);\n  }\n\n  const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];\n  if (hashtags.length < 8) issues.push(`Only ${hashtags.length} hashtags, want 8-12`);\n  if (caption.length > 2200) issues.push('Caption exceeds the Instagram limit');\n\n  return {\n    json: {\n      ...post,\n      hashtags,\n      sourceTitle: item.json.title,\n      sourceLink: item.json.link,\n      angle: item.json.angle,\n      audience: item.json.audience,\n      issues,\n      needsReview: issues.length > 0,\n      generatedAt: new Date().toISOString(),\n    },\n  };\n});"
       },
-      "id": "brand-safety-gate",
+      "id": "8786c93e-251b-5d7f-b4d9-35b4815fac17",
       "name": "Brand Safety Gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -330,7 +331,7 @@
         "mode": "runOnceForAllItems",
         "jsCode": "// Collapse the run into one markdown digest a human can read in 30 seconds.\nconst posts = $input.all().map((i) => i.json);\nconst stamp = new Date().toISOString().slice(0, 10);\n\nconst approved = posts.filter((p) => !p.needsReview);\nconst flagged = posts.filter((p) => p.needsReview);\n\nconst render = (p) => [\n  `### ${p.hook}`,\n  '',\n  `**Source:** [${p.sourceTitle}](${p.sourceLink})  `,\n  `**Angle:** ${p.angle}  `,\n  `**Audience:** ${p.audience}`,\n  '',\n  p.issues.length ? `> **Held for review:** ${p.issues.join('; ')}\\n` : '',\n  '```',\n  p.caption,\n  '',\n  (p.hashtags || []).join(' '),\n  '```',\n  '',\n  `*Image prompt:* ${p.image_prompt}`,\n  '',\n  '---',\n  '',\n].join('\\n');\n\nconst md = [\n  `# Rumah123 weekly Instagram digest - ${stamp}`,\n  '',\n  `${approved.length} ready to post, ${flagged.length} held for review.`,\n  '',\n  approved.length ? '## Ready to post\\n' : '',\n  ...approved.map(render),\n  flagged.length ? '## Held for review\\n' : '',\n  ...flagged.map(render),\n].join('\\n');\n\nreturn [{ json: { filename: `digest-${stamp}.md`, posts }, binary: {} , md }];"
       },
-      "id": "build-digest",
+      "id": "daf9cbdf-4133-51a0-8aa8-03fc77c3641e",
       "name": "Build Digest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -347,7 +348,7 @@
           "fileName": "={{ $json.filename }}"
         }
       },
-      "id": "digest-to-file",
+      "id": "41cbf73c-56ad-56f2-8153-ee9e74b23efd",
       "name": "Digest to File",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.1,
@@ -362,7 +363,7 @@
         "fileName": "=./output/{{ $json.filename }}",
         "options": {}
       },
-      "id": "save-digest",
+      "id": "66303fae-393c-5ad1-adee-4d2a6029ac89",
       "name": "Save Digest",
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
@@ -373,7 +374,7 @@
     },
     {
       "parameters": {},
-      "id": "no-story-this-week",
+      "id": "33e8702e-cd0d-5218-b6f6-683a4d909737",
       "name": "No Story This Week",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
@@ -615,6 +616,8 @@
     "executionOrder": "v1",
     "timezone": "Asia/Jakarta"
   },
+  "active": false,
+  "versionId": "4fa18fb7-35a1-52ab-bd2d-7aa9fb83913d",
   "pinData": {},
   "meta": {
     "instanceId": "99-group-ai-challenge-section-2"

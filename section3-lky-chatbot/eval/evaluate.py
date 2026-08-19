@@ -31,6 +31,7 @@ import argparse
 import json
 import statistics
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -93,6 +94,11 @@ def judge(client, question: str, context: str, answer: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0)
+    # A graded case costs three model calls (rerank, generate, judge) against a
+    # free tier metered per minute. Pacing between cases is cheaper than
+    # retrying into an exhausted quota.
+    parser.add_argument("--delay", type=float, default=12.0,
+                        help="seconds between cases; lower it on a paid tier")
     args = parser.parse_args()
 
     cases = [json.loads(line) for line in
@@ -103,7 +109,9 @@ def main() -> int:
     bot = LKYChatbot()
     scored, refusals, rows = [], [], []
 
-    for case in cases:
+    for index, case in enumerate(cases):
+        if index:
+            time.sleep(args.delay)
         print(f"  {case['id']}: {case['question'][:60]}...")
         answer = bot.ask(case["question"])
 

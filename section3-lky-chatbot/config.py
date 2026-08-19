@@ -32,5 +32,16 @@ CHUNK_OVERLAP = 200      # characters
 # --- Retrieval --------------------------------------------------------------
 TOP_K = 6                # chunks passed to the generator
 CANDIDATE_K = 20         # chunks pulled before reranking
-MIN_RELEVANCE = 0.25     # cosine similarity floor; below this we treat the
-                         # corpus as having no answer and say so.
+
+# Cosine similarity floor: below this the corpus is treated as having no answer
+# and the pipeline refuses before generating.
+#
+# Measured, not guessed - run eval/calibrate_floor.py to reproduce. On this
+# corpus, real questions score 0.623-0.696 and unrelated ones 0.509-0.556, a
+# clean gap of 0.067; 0.59 is the midpoint. The first version of this file had
+# 0.25, which felt like a reasonable "low similarity" threshold and was in fact
+# so far below the noise floor that the check could never fire. Cosine
+# similarity is not calibrated to human intuitions about relatedness, and the
+# absolute values shift with the embedding model and dimensionality - so this
+# number has to be re-measured whenever either changes.
+MIN_RELEVANCE = 0.59
