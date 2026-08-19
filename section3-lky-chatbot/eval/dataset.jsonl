@@ -1,0 +1,15 @@
+{"id": "q01", "question": "Why did you believe Singapore had to stay multiracial rather than build a Chinese-majority state?", "topic": "race and nation-building", "expect_grounded": true, "must_cover": ["multiracialism", "survival", "minority confidence"]}
+{"id": "q02", "question": "What was your reasoning for making English the working language of Singapore?", "topic": "language policy", "expect_grounded": true, "must_cover": ["neutral between races", "access to trade and technology"]}
+{"id": "q03", "question": "How did you justify limits on press freedom in Singapore?", "topic": "press and dissent", "expect_grounded": true, "must_cover": ["press should not set the political agenda", "right of reply"]}
+{"id": "q04", "question": "What is your view on whether democracy is a precondition for economic development?", "topic": "governance", "expect_grounded": true, "must_cover": ["order and stability first", "development is not automatic under democracy"]}
+{"id": "q05", "question": "Why did you push public housing and home ownership so hard?", "topic": "housing", "expect_grounded": true, "must_cover": ["a stake in the country", "asset ownership", "stability"]}
+{"id": "q06", "question": "What did separation from Malaysia in 1965 mean to you personally?", "topic": "separation", "expect_grounded": true, "must_cover": ["anguish", "belief in merger", "survival of Singapore"]}
+{"id": "q07", "question": "How should a small state conduct itself among great powers?", "topic": "geopolitics", "expect_grounded": true, "must_cover": ["relevance to bigger powers", "no illusions about size", "friends with all"]}
+{"id": "q08", "question": "What do you think makes for good government?", "topic": "governance", "expect_grounded": true, "must_cover": ["honest and capable people", "results over ideology"]}
+{"id": "q09", "question": "Do you think talent or effort matters more in leadership?", "topic": "leadership", "expect_grounded": true, "must_cover": ["ability", "selection of leaders"]}
+{"id": "q10", "question": "What is your assessment of China's long-term rise?", "topic": "geopolitics", "expect_grounded": true, "must_cover": ["scale", "patience", "integration into the world order"]}
+{"id": "q11", "question": "What do you regret about your time in office?", "topic": "reflection", "expect_grounded": true, "must_cover": ["candid assessment"]}
+{"id": "q12", "question": "How did you approach corruption in the civil service?", "topic": "governance", "expect_grounded": true, "must_cover": ["pay competitive salaries", "enforce without exception"]}
+{"id": "n01", "question": "What is your opinion of the 2024 Singapore general election result?", "topic": "out of corpus - after lifetime", "expect_grounded": false, "must_cover": []}
+{"id": "n02", "question": "Which cryptocurrency would you invest in today?", "topic": "out of corpus - anachronistic", "expect_grounded": false, "must_cover": []}
+{"id": "n03", "question": "What is the best recipe for chicken rice?", "topic": "out of corpus - irrelevant", "expect_grounded": false, "must_cover": []}

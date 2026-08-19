@@ -1,0 +1,623 @@
+{
+  "name": "Rumah123 Weekly IG Post Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "weekly-monday-08:00",
+      "name": "Weekly Monday 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://rss.tempo.co/bisnis",
+        "options": {}
+      },
+      "id": "tempo-bisnis",
+      "name": "Tempo Bisnis",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://finance.detik.com/properti/rss",
+        "options": {}
+      },
+      "id": "detik-properti",
+      "name": "Detik Properti",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.cnbcindonesia.com/market/rss",
+        "options": {}
+      },
+      "id": "cnbc-market",
+      "name": "CNBC Market",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "merge-feeds",
+      "name": "Merge Feeds",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise three feed shapes into one, drop anything older than a week.\nconst WINDOW_DAYS = 7;\nconst cutoff = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;\n\nreturn $input.all().flatMap((item) => {\n  const d = item.json;\n  const link = d.link || d.guid || '';\n  if (!link) return [];\n\n  const published = new Date(d.isoDate || d.pubDate || Date.now());\n  if (published.getTime() < cutoff) return [];\n\n  // Feeds return HTML fragments of wildly different lengths; the model only\n  // needs enough to judge the story, and trimming here keeps token cost flat.\n  const snippet = String(d.contentSnippet || d.content || d.description || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1200);\n\n  let source = 'unknown';\n  try { source = new URL(link).hostname.replace(/^www\\./, ''); } catch (e) {}\n\n  return [{\n    json: {\n      title: String(d.title || '').trim(),\n      link,\n      source,\n      isoDate: published.toISOString(),\n      contentSnippet: snippet,\n    },\n  }];\n});"
+      },
+      "id": "normalise-&-window",
+      "name": "Normalise & Window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "logic": "removeItemsWithAlreadySeenKeyValues",
+        "dedupeValue": "={{ $json.link }}",
+        "options": {}
+      },
+      "id": "drop-seen-stories",
+      "name": "Drop Seen Stories",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        920,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "id": "top-3-stories",
+      "name": "Top 3 Stories",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the editor deciding whether a property news item is worth an Instagram post for Rumah123.\n\nReject an item when it is: a corporate announcement with no reader benefit, a thinly rewritten press release, purely political, older than roughly a week, or so thin that a caption would have to invent the substance.\n\nAccept when a real person searching for a home would be better off knowing this.\n\nARTICLE\nTitle: {{ $json.title }}\nPublished: {{ $json.isoDate }}\nSource: {{ $json.source }}\nSummary: {{ $json.contentSnippet }}\n\nDecide, and if you accept it, name the angle and the audience it serves.",
+        "hasOutputParser": true
+      },
+      "id": "score-newsworthiness",
+      "name": "Score Newsworthiness",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "gemini---editor",
+      "name": "Gemini - Editor",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        620
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gemini-free",
+          "name": "Google Gemini (AI Studio)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"relevant\": {\n      \"type\": \"boolean\"\n    },\n    \"angle\": {\n      \"type\": \"string\",\n      \"description\": \"The reader-benefit angle, one sentence\"\n    },\n    \"audience\": {\n      \"type\": \"string\",\n      \"description\": \"e.g. first-time buyer, investor, renter\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Why accepted or rejected, one sentence\"\n    }\n  },\n  \"required\": [\n    \"relevant\",\n    \"angle\",\n    \"audience\",\n    \"reason\"\n  ]\n}"
+      },
+      "id": "editor-schema",
+      "name": "Editor Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1480,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "relevant",
+              "leftValue": "={{ $json.output.relevant }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "worth-posting?",
+      "name": "Worth Posting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1620,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "title",
+              "type": "string",
+              "value": "={{ $('Top 3 Stories').item.json.title }}"
+            },
+            {
+              "id": "a2",
+              "name": "link",
+              "type": "string",
+              "value": "={{ $('Top 3 Stories').item.json.link }}"
+            },
+            {
+              "id": "a3",
+              "name": "source",
+              "type": "string",
+              "value": "={{ $('Top 3 Stories').item.json.source }}"
+            },
+            {
+              "id": "a4",
+              "name": "contentSnippet",
+              "type": "string",
+              "value": "={{ $('Top 3 Stories').item.json.contentSnippet }}"
+            },
+            {
+              "id": "a5",
+              "name": "angle",
+              "type": "string",
+              "value": "={{ $json.output.angle }}"
+            },
+            {
+              "id": "a6",
+              "name": "audience",
+              "type": "string",
+              "value": "={{ $json.output.audience }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "carry-brief-forward",
+      "name": "Carry Brief Forward",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You write Instagram captions for Rumah123, Indonesia's largest property marketplace.\n\nBRAND VOICE\n- Warm, plain-spoken Bahasa Indonesia. Write the way a knowledgeable friend explains something, not the way a brochure sells something.\n- Trustworthy above all. Rumah123 is where people make the largest financial decision of their lives. Never oversell.\n- Light and human is good. Cringey hard-sell is not.\n- Mixing in common English terms people actually use (KPR, cicilan, DP, cash flow) is natural. Forced slang is not.\n\nHARD RULES - these override everything above\n- Never promise or imply a guaranteed return, guaranteed approval, or a specific future price.\n- Never state an interest rate, price, or percentage unless it appears verbatim in the source article.\n- Never present an opinion from the article as established fact.\n- No fear-mongering (\"buruan sebelum harga naik lagi!\") and no false scarcity.\n- If the article does not support a claim, leave the claim out.\n\nSTRUCTURE\n- Hook: one scroll-stopping line, max 60 characters.\n- Body: 3-5 short paragraphs. One idea each. Blank line between them.\n- A concrete, useful takeaway the reader can act on this week.\n- CTA pointing to Rumah123 that reads as helpful, not desperate.\n- 8-12 hashtags: mix broad (#properti #rumah123) and specific to the topic and city.\n- 2-5 emoji total, used as punctuation, never as decoration.\n\n---\n\nARTICLE\nTitle: {{ $json.title }}\nSource: {{ $json.source }} ({{ $json.link }})\nSummary: {{ $json.contentSnippet }}\n\nEDITORIAL BRIEF\nAngle: {{ $json.angle }}\nTarget audience: {{ $json.audience }}\n\nWrite the Instagram post. Ground every factual claim in the article above; if the article does not support something, do not write it.",
+        "hasOutputParser": true
+      },
+      "id": "write-caption",
+      "name": "Write Caption",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        2060,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "temperature": 0.8
+        }
+      },
+      "id": "gemini---copywriter",
+      "name": "Gemini - Copywriter",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        520
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gemini-free",
+          "name": "Google Gemini (AI Studio)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"hook\": {\n      \"type\": \"string\"\n    },\n    \"caption\": {\n      \"type\": \"string\",\n      \"description\": \"Full caption, hook included, ready to post\"\n    },\n    \"hashtags\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"image_prompt\": {\n      \"type\": \"string\",\n      \"description\": \"Prompt for the accompanying visual\"\n    },\n    \"claims\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Every factual claim made, for the compliance gate\"\n    }\n  },\n  \"required\": [\n    \"hook\",\n    \"caption\",\n    \"hashtags\",\n    \"image_prompt\",\n    \"claims\"\n  ]\n}"
+      },
+      "id": "caption-schema",
+      "name": "Caption Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        2180,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic guardrail in front of the model's own judgement.\n//\n// The brand rules live in the prompt, but a prompt is a request, not a\n// constraint - a model that ignores it fails silently and the post ships. These\n// patterns are the claims that would actually get Rumah123 in trouble: promised\n// returns, invented rates, and manufactured urgency. Anything caught here is\n// routed to human review rather than dropped, because a false positive should\n// cost a glance, not a story.\n\nconst BANNED = [\n  { pattern: /dijamin|garansi|pasti (untung|naik|cuan)|guaranteed/i,\n    issue: 'Promises a guaranteed outcome' },\n  { pattern: /pasti disetujui|approval dijamin/i,\n    issue: 'Promises loan approval' },\n  { pattern: /buruan sebelum|jangan sampai kehabisan|terakhir hari ini/i,\n    issue: 'Manufactured urgency or false scarcity' },\n  { pattern: /\\b\\d+(?:[.,]\\d+)?\\s*%/,\n    issue: 'States a percentage - must appear verbatim in the source' },\n];\n\nreturn $input.all().map((item) => {\n  const post = item.json.output ?? item.json;\n  const caption = String(post.caption || '');\n  const article = String(item.json.contentSnippet || '');\n\n  const issues = [];\n  for (const { pattern, issue } of BANNED) {\n    const hit = caption.match(pattern);\n    if (!hit) continue;\n    // A percentage quoted straight from the article is legitimate.\n    if (issue.startsWith('States a percentage') && article.includes(hit[0])) continue;\n    issues.push(`${issue} -> \"${hit[0]}\"`);\n  }\n\n  const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];\n  if (hashtags.length < 8) issues.push(`Only ${hashtags.length} hashtags, want 8-12`);\n  if (caption.length > 2200) issues.push('Caption exceeds the Instagram limit');\n\n  return {\n    json: {\n      ...post,\n      hashtags,\n      sourceTitle: item.json.title,\n      sourceLink: item.json.link,\n      angle: item.json.angle,\n      audience: item.json.audience,\n      issues,\n      needsReview: issues.length > 0,\n      generatedAt: new Date().toISOString(),\n    },\n  };\n});"
+      },
+      "id": "brand-safety-gate",
+      "name": "Brand Safety Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Collapse the run into one markdown digest a human can read in 30 seconds.\nconst posts = $input.all().map((i) => i.json);\nconst stamp = new Date().toISOString().slice(0, 10);\n\nconst approved = posts.filter((p) => !p.needsReview);\nconst flagged = posts.filter((p) => p.needsReview);\n\nconst render = (p) => [\n  `### ${p.hook}`,\n  '',\n  `**Source:** [${p.sourceTitle}](${p.sourceLink})  `,\n  `**Angle:** ${p.angle}  `,\n  `**Audience:** ${p.audience}`,\n  '',\n  p.issues.length ? `> **Held for review:** ${p.issues.join('; ')}\\n` : '',\n  '```',\n  p.caption,\n  '',\n  (p.hashtags || []).join(' '),\n  '```',\n  '',\n  `*Image prompt:* ${p.image_prompt}`,\n  '',\n  '---',\n  '',\n].join('\\n');\n\nconst md = [\n  `# Rumah123 weekly Instagram digest - ${stamp}`,\n  '',\n  `${approved.length} ready to post, ${flagged.length} held for review.`,\n  '',\n  approved.length ? '## Ready to post\\n' : '',\n  ...approved.map(render),\n  flagged.length ? '## Held for review\\n' : '',\n  ...flagged.map(render),\n].join('\\n');\n\nreturn [{ json: { filename: `digest-${stamp}.md`, posts }, binary: {} , md }];"
+      },
+      "id": "build-digest",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "md",
+        "options": {
+          "fileName": "={{ $json.filename }}"
+        }
+      },
+      "id": "digest-to-file",
+      "name": "Digest to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=./output/{{ $json.filename }}",
+        "options": {}
+      },
+      "id": "save-digest",
+      "name": "Save Digest",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "no-story-this-week",
+      "name": "No Story This Week",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Weekly Monday 08:00": {
+      "main": [
+        [
+          {
+            "node": "Tempo Bisnis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detik Properti",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CNBC Market",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tempo Bisnis": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detik Properti": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "CNBC Market": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Feeds": {
+      "main": [
+        [
+          {
+            "node": "Normalise & Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise & Window": {
+      "main": [
+        [
+          {
+            "node": "Drop Seen Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop Seen Stories": {
+      "main": [
+        [
+          {
+            "node": "Top 3 Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 3 Stories": {
+      "main": [
+        [
+          {
+            "node": "Score Newsworthiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Editor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Score Newsworthiness",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Editor Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Score Newsworthiness",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Newsworthiness": {
+      "main": [
+        [
+          {
+            "node": "Worth Posting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worth Posting?": {
+      "main": [
+        [
+          {
+            "node": "Carry Brief Forward",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Story This Week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carry Brief Forward": {
+      "main": [
+        [
+          {
+            "node": "Write Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Copywriter": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write Caption",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caption Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write Caption",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Caption": {
+      "main": [
+        [
+          {
+            "node": "Brand Safety Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brand Safety Gate": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Digest to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest to File": {
+      "main": [
+        [
+          {
+            "node": "Save Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Jakarta"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "99-group-ai-challenge-section-2"
+  },
+  "tags": []
+}

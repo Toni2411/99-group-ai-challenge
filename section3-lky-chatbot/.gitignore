@@ -1,0 +1,8 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+chroma_db/
+eval/results_raw.json
+data/corpus/
