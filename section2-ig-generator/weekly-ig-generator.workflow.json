@@ -83,7 +83,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalise three feed shapes into one, drop anything older than a week.\nconst WINDOW_DAYS = 7;\nconst cutoff = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;\n\nreturn $input.all().flatMap((item) => {\n  const d = item.json;\n  const link = d.link || d.guid || '';\n  if (!link) return [];\n\n  const published = new Date(d.isoDate || d.pubDate || Date.now());\n  if (published.getTime() < cutoff) return [];\n\n  // Feeds return HTML fragments of wildly different lengths; the model only\n  // needs enough to judge the story, and trimming here keeps token cost flat.\n  const snippet = String(d.contentSnippet || d.content || d.description || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1200);\n\n  let source = 'unknown';\n  try { source = new URL(link).hostname.replace(/^www\\./, ''); } catch (e) {}\n\n  return [{\n    json: {\n      title: String(d.title || '').trim(),\n      link,\n      source,\n      isoDate: published.toISOString(),\n      contentSnippet: snippet,\n    },\n  }];\n});"
+        "jsCode": "// Normalise three feed shapes into one, drop anything older than a week.\nconst WINDOW_DAYS = 7;\nconst cutoff = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;\n\nreturn $input.all().flatMap((item) => {\n  const d = item.json;\n  const link = d.link || d.guid || '';\n  if (!link) return [];\n\n  const published = new Date(d.isoDate || d.pubDate || Date.now());\n  if (published.getTime() < cutoff) return [];\n\n  // Feeds return HTML fragments of wildly different lengths; the model only\n  // needs enough to judge the story, and trimming here keeps token cost flat.\n  const snippet = String(d.contentSnippet || d.content || d.description || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1200);\n\n  let source = 'unknown';\n  try { source = new URL(link).hostname.replace(/^www\\./, ''); } catch (e) {}\n\n  const title = String(d.title || '').trim();\n\n  // Cheap topical pre-score before spending an LLM call on the item.\n  //\n  // Two of the three feeds are general business, so the raw pool is mostly\n  // irrelevant - the first run of this workflow sent the editor a laptop\n  // promotion. The editor correctly rejected all three items it was given and\n  // the run produced nothing, which looked like a broken workflow but was\n  // actually a starved one. Ranking by topical signal here means the editor\n  // spends its judgement on plausible candidates instead of filtering noise.\n  const HAY = (title + ' ' + snippet).toLowerCase();\n  const TERMS = [\n    ['properti', 3], ['rumah', 3], ['hunian', 3], ['apartemen', 3],\n    ['kpr', 4], ['mortgage', 4], ['developer', 2], ['perumahan', 3],\n    ['real estate', 3], ['tanah', 2], ['sewa', 2], ['kontrakan', 2],\n    ['suku bunga', 2], ['bi rate', 2], ['ihsg', -1], ['gadget', -3],\n    ['laptop', -3], ['smartphone', -3], ['otomotif', -3], ['kripto', -2],\n  ];\n  const topicScore = TERMS.reduce(\n    (acc, [term, weight]) => acc + (HAY.includes(term) ? weight : 0), 0);\n\n  return [{\n    json: {\n      title,\n      link,\n      source,\n      isoDate: published.toISOString(),\n      contentSnippet: snippet,\n      topicScore,\n    },\n  }];\n});"
       },
       "id": "bc835c18-4344-5553-8e01-e5b8495287ed",
       "name": "Normalise & Window",
@@ -112,14 +112,35 @@
     },
     {
       "parameters": {
-        "maxItems": 3
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "topicScore",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "ab8e7f41-b9b6-5894-8afe-88c7d2f0c73e",
-      "name": "Top 3 Stories",
-      "type": "n8n-nodes-base.limit",
+      "id": "434eff5f-7c1f-5b4e-a14d-694479402d5c",
+      "name": "Rank By Topic",
+      "type": "n8n-nodes-base.sort",
       "typeVersion": 1,
       "position": [
         1140,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 8
+      },
+      "id": "45d42dcb-1c3d-5e96-a960-7c774c20dece",
+      "name": "Top 8 Candidates",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1250,
         400
       ]
     },
@@ -140,7 +161,7 @@
     },
     {
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "modelName": "models/gemini-3.5-flash-lite",
         "options": {
           "temperature": 0.2
         }
@@ -155,7 +176,7 @@
       ],
       "credentials": {
         "googlePalmApi": {
-          "id": "gemini-free",
+          "id": "yD6JfqYTBTrWBAeh",
           "name": "Google Gemini (AI Studio)"
         }
       }
@@ -217,25 +238,25 @@
               "id": "a1",
               "name": "title",
               "type": "string",
-              "value": "={{ $('Top 3 Stories').item.json.title }}"
+              "value": "={{ $('Top 8 Candidates').item.json.title }}"
             },
             {
               "id": "a2",
               "name": "link",
               "type": "string",
-              "value": "={{ $('Top 3 Stories').item.json.link }}"
+              "value": "={{ $('Top 8 Candidates').item.json.link }}"
             },
             {
               "id": "a3",
               "name": "source",
               "type": "string",
-              "value": "={{ $('Top 3 Stories').item.json.source }}"
+              "value": "={{ $('Top 8 Candidates').item.json.source }}"
             },
             {
               "id": "a4",
               "name": "contentSnippet",
               "type": "string",
-              "value": "={{ $('Top 3 Stories').item.json.contentSnippet }}"
+              "value": "={{ $('Top 8 Candidates').item.json.contentSnippet }}"
             },
             {
               "id": "a5",
@@ -279,7 +300,7 @@
     },
     {
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "modelName": "models/gemini-3.5-flash-lite",
         "options": {
           "temperature": 0.8
         }
@@ -294,7 +315,7 @@
       ],
       "credentials": {
         "googlePalmApi": {
-          "id": "gemini-free",
+          "id": "yD6JfqYTBTrWBAeh",
           "name": "Google Gemini (AI Studio)"
         }
       }
@@ -315,7 +336,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Deterministic guardrail in front of the model's own judgement.\n//\n// The brand rules live in the prompt, but a prompt is a request, not a\n// constraint - a model that ignores it fails silently and the post ships. These\n// patterns are the claims that would actually get Rumah123 in trouble: promised\n// returns, invented rates, and manufactured urgency. Anything caught here is\n// routed to human review rather than dropped, because a false positive should\n// cost a glance, not a story.\n\nconst BANNED = [\n  { pattern: /dijamin|garansi|pasti (untung|naik|cuan)|guaranteed/i,\n    issue: 'Promises a guaranteed outcome' },\n  { pattern: /pasti disetujui|approval dijamin/i,\n    issue: 'Promises loan approval' },\n  { pattern: /buruan sebelum|jangan sampai kehabisan|terakhir hari ini/i,\n    issue: 'Manufactured urgency or false scarcity' },\n  { pattern: /\\b\\d+(?:[.,]\\d+)?\\s*%/,\n    issue: 'States a percentage - must appear verbatim in the source' },\n];\n\nreturn $input.all().map((item) => {\n  const post = item.json.output ?? item.json;\n  const caption = String(post.caption || '');\n  const article = String(item.json.contentSnippet || '');\n\n  const issues = [];\n  for (const { pattern, issue } of BANNED) {\n    const hit = caption.match(pattern);\n    if (!hit) continue;\n    // A percentage quoted straight from the article is legitimate.\n    if (issue.startsWith('States a percentage') && article.includes(hit[0])) continue;\n    issues.push(`${issue} -> \"${hit[0]}\"`);\n  }\n\n  const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];\n  if (hashtags.length < 8) issues.push(`Only ${hashtags.length} hashtags, want 8-12`);\n  if (caption.length > 2200) issues.push('Caption exceeds the Instagram limit');\n\n  return {\n    json: {\n      ...post,\n      hashtags,\n      sourceTitle: item.json.title,\n      sourceLink: item.json.link,\n      angle: item.json.angle,\n      audience: item.json.audience,\n      issues,\n      needsReview: issues.length > 0,\n      generatedAt: new Date().toISOString(),\n    },\n  };\n});"
+        "jsCode": "// Deterministic guardrail in front of the model's own judgement.\n//\n// The brand rules live in the prompt, but a prompt is a request, not a\n// constraint - a model that ignores it fails silently and the post ships. These\n// patterns are the claims that would actually get Rumah123 in trouble: promised\n// returns, invented rates, and manufactured urgency. Anything caught here is\n// routed to human review rather than dropped, because a false positive should\n// cost a glance, not a story.\n\nconst BANNED = [\n  { pattern: /dijamin|garansi|pasti (untung|naik|cuan)|guaranteed/i,\n    issue: 'Promises a guaranteed outcome' },\n  { pattern: /pasti disetujui|approval dijamin/i,\n    issue: 'Promises loan approval' },\n  { pattern: /buruan sebelum|jangan sampai kehabisan|terakhir hari ini/i,\n    issue: 'Manufactured urgency or false scarcity' },\n  { pattern: /\\b\\d+(?:[.,]\\d+)?\\s*%/,\n    issue: 'States a percentage - must appear verbatim in the source' },\n];\n\n// The editorial brief has to be fetched from upstream by name. Write Caption\n// replaces each item's json with the model's structured output, so the title,\n// link and angle carried this far are gone by the time this node runs - they\n// rendered as \"undefined\" in the first digest, and the carve-out below silently\n// compared every percentage against an empty string.\nconst briefs = $('Carry Brief Forward').all();\n\nreturn $input.all().map((item, i) => {\n  const post = item.json.output ?? item.json;\n  const brief = (briefs[i] || {}).json || {};\n  const caption = String(post.caption || '');\n  const article = String(brief.contentSnippet || '');\n\n  const issues = [];\n  for (const { pattern, issue } of BANNED) {\n    const hit = caption.match(pattern);\n    if (!hit) continue;\n    // A percentage quoted straight from the article is legitimate.\n    if (issue.startsWith('States a percentage') && article.includes(hit[0])) continue;\n    issues.push(`${issue} -> \"${hit[0]}\"`);\n  }\n\n  const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];\n  if (hashtags.length < 8) issues.push(`Only ${hashtags.length} hashtags, want 8-12`);\n  if (caption.length > 2200) issues.push('Caption exceeds the Instagram limit');\n\n  return {\n    json: {\n      ...post,\n      hashtags,\n      sourceTitle: brief.title,\n      sourceLink: brief.link,\n      angle: brief.angle,\n      audience: brief.audience,\n      issues,\n      needsReview: issues.length > 0,\n      generatedAt: new Date().toISOString(),\n    },\n  };\n});"
       },
       "id": "8786c93e-251b-5d7f-b4d9-35b4815fac17",
       "name": "Brand Safety Gate",
@@ -329,7 +350,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Collapse the run into one markdown digest a human can read in 30 seconds.\nconst posts = $input.all().map((i) => i.json);\nconst stamp = new Date().toISOString().slice(0, 10);\n\nconst approved = posts.filter((p) => !p.needsReview);\nconst flagged = posts.filter((p) => p.needsReview);\n\nconst render = (p) => [\n  `### ${p.hook}`,\n  '',\n  `**Source:** [${p.sourceTitle}](${p.sourceLink})  `,\n  `**Angle:** ${p.angle}  `,\n  `**Audience:** ${p.audience}`,\n  '',\n  p.issues.length ? `> **Held for review:** ${p.issues.join('; ')}\\n` : '',\n  '```',\n  p.caption,\n  '',\n  (p.hashtags || []).join(' '),\n  '```',\n  '',\n  `*Image prompt:* ${p.image_prompt}`,\n  '',\n  '---',\n  '',\n].join('\\n');\n\nconst md = [\n  `# Rumah123 weekly Instagram digest - ${stamp}`,\n  '',\n  `${approved.length} ready to post, ${flagged.length} held for review.`,\n  '',\n  approved.length ? '## Ready to post\\n' : '',\n  ...approved.map(render),\n  flagged.length ? '## Held for review\\n' : '',\n  ...flagged.map(render),\n].join('\\n');\n\nreturn [{ json: { filename: `digest-${stamp}.md`, posts }, binary: {} , md }];"
+        "jsCode": "// Collapse the run into one markdown digest a human can read in 30 seconds.\nconst posts = $input.all().map((i) => i.json);\nconst stamp = new Date().toISOString().slice(0, 10);\n\nconst approved = posts.filter((p) => !p.needsReview);\nconst flagged = posts.filter((p) => p.needsReview);\n\nconst render = (p) => [\n  `### ${p.hook}`,\n  '',\n  `**Source:** [${p.sourceTitle}](${p.sourceLink})  `,\n  `**Angle:** ${p.angle}  `,\n  `**Audience:** ${p.audience}`,\n  '',\n  p.issues.length ? `> **Held for review:** ${p.issues.join('; ')}\\n` : '',\n  '```',\n  p.caption,\n  '',\n  (p.hashtags || []).join(' '),\n  '```',\n  '',\n  `*Image prompt:* ${p.image_prompt}`,\n  '',\n  '---',\n  '',\n].join('\\n');\n\nconst md = [\n  `# Rumah123 weekly Instagram digest - ${stamp}`,\n  '',\n  `${approved.length} ready to post, ${flagged.length} held for review.`,\n  '',\n  approved.length ? '## Ready to post\\n' : '',\n  ...approved.map(render),\n  flagged.length ? '## Held for review\\n' : '',\n  ...flagged.map(render),\n].join('\\n');\n\n// md must live inside json - an n8n item only carries `json` and\n// `binary`, so a sibling field is silently dropped and the downstream\n// Convert to File node finds nothing.\nreturn [{ json: { filename: `digest-${stamp}.md`, md, posts } }];"
       },
       "id": "daf9cbdf-4133-51a0-8aa8-03fc77c3641e",
       "name": "Build Digest",
@@ -360,7 +381,7 @@
     {
       "parameters": {
         "operation": "write",
-        "fileName": "=./output/{{ $json.filename }}",
+        "fileName": "=./output/digest-{{ $now.toFormat('yyyy-MM-dd') }}.md",
         "options": {}
       },
       "id": "66303fae-393c-5ad1-adee-4d2a6029ac89",
@@ -382,10 +403,44 @@
         1840,
         520
       ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "29d5a99b-b10b-5538-ae3e-c49f020c3d50",
+      "name": "Run On Demand",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        620
+      ]
     }
   ],
   "connections": {
     "Weekly Monday 08:00": {
+      "main": [
+        [
+          {
+            "node": "Tempo Bisnis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detik Properti",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CNBC Market",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run On Demand": {
       "main": [
         [
           {
@@ -465,14 +520,25 @@
       "main": [
         [
           {
-            "node": "Top 3 Stories",
+            "node": "Rank By Topic",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Top 3 Stories": {
+    "Rank By Topic": {
+      "main": [
+        [
+          {
+            "node": "Top 8 Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 8 Candidates": {
       "main": [
         [
           {

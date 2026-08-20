@@ -1,12 +1,14 @@
 # Prompts
 
 Both prompts exactly as they appear in the workflow, extracted from
-`weekly-ig-generator.workflow.json` so the two cannot drift apart.
-`{{ }}` are n8n expressions resolved per item at runtime.
+`weekly-ig-generator.workflow.json` by `build_workflow.py` so the two cannot
+drift apart. `{{ }}` are n8n expressions resolved per item at runtime.
 
 ## 1. Editor — `Score Newsworthiness`
 
-Gemini 2.5 Flash, temperature **0.2**. Decides whether a story is worth a post at all.
+Decides whether a story is worth a post at all. Low temperature: this is a judgement call where consistency matters and invention is a defect.
+
+Model `gemini-3.5-flash-lite`, temperature **0.2**.
 
 ```
 You are the editor deciding whether a property news item is worth an Instagram post for Rumah123.
@@ -57,7 +59,9 @@ Structured output schema:
 
 ## 2. Copywriter — `Write Caption`
 
-Gemini 2.5 Flash, temperature **0.8**. Writes the caption for stories that passed the editor.
+Writes the caption for stories the editor accepted. High temperature: a caption that reads like it came off an assembly line is the whole failure mode of automated social content.
+
+Model `gemini-3.5-flash-lite`, temperature **0.8**.
 
 ```
 You write Instagram captions for Rumah123, Indonesia's largest property marketplace.

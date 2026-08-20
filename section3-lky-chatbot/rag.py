@@ -51,6 +51,10 @@ GROUNDING - this overrides the voice instructions
 class Answer:
     text: str
     sources: list[dict] = field(default_factory=list)
+    # The chunk text actually placed in the prompt. Callers that need to verify
+    # the answer - the eval harness above all - need the excerpts themselves,
+    # not just their titles.
+    contexts: list[str] = field(default_factory=list)
     rewritten_query: str = ""
     grounded: bool = True
 
@@ -66,9 +70,10 @@ class LKYChatbot:
     # -- model helpers -------------------------------------------------------
 
     @retry(stop=stop_after_attempt(4), wait=wait_exponential(min=2, max=30))
-    def _generate(self, prompt: str, system: str = "", temperature: float = 0.4) -> str:
+    def _generate(self, prompt: str, system: str = "", temperature: float = 0.4,
+                  model: str | None = None) -> str:
         response = self.client.models.generate_content(
-            model=config.CHAT_MODEL,
+            model=model or config.CHAT_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system or None,
@@ -107,7 +112,8 @@ class LKYChatbot:
             "implicit reference. Reply with the query only."
         )
         try:
-            rewritten = self._generate(prompt, temperature=0.0)
+            rewritten = self._generate(prompt, temperature=0.0,
+                                       model=config.UTILITY_MODEL)
             return rewritten or question
         except Exception:
             return question  # never let rewriting take the whole turn down
@@ -150,16 +156,49 @@ class LKYChatbot:
             f"{config.TOP_K} most useful passage numbers, best first, as a "
             "comma-separated list of digits and nothing else."
         )
+        ranked = candidates
         try:
-            reply = self._generate(prompt, temperature=0.0)
+            reply = self._generate(prompt, temperature=0.0,
+                                   model=config.UTILITY_MODEL)
             order = [int(t) for t in reply.replace(" ", "").split(",")
                      if t.isdigit() and int(t) < len(candidates)]
             if order:
-                ranked = [candidates[i] for i in dict.fromkeys(order)]
-                return ranked[:config.TOP_K]
+                chosen = dict.fromkeys(order)
+                ranked = ([candidates[i] for i in chosen]
+                          + [c for i, c in enumerate(candidates)
+                             if i not in chosen])
         except Exception:
             pass
-        return candidates[:config.TOP_K]
+        return self._diversify(ranked)
+
+    @staticmethod
+    def _diversify(ranked: list[dict]) -> list[dict]:
+        """Cap how many chunks any single document may contribute.
+
+        Adjacent chunks of one speech are near-duplicates by construction: they
+        overlap by 200 characters and argue the same point. Retrieval happily
+        returned six slots filled by three documents, and the eval judge kept
+        flagging the excerpts as redundant. Capping per document trades a little
+        depth on the best-matching speech for breadth across the archive, which
+        is the better trade when the question is open-ended.
+        """
+        kept, seen = [], {}
+        for candidate in ranked:
+            key = candidate["meta"].get("filename", "?")
+            if seen.get(key, 0) >= config.MAX_PER_DOC:
+                continue
+            seen[key] = seen.get(key, 0) + 1
+            kept.append(candidate)
+            if len(kept) == config.TOP_K:
+                break
+
+        # If the cap starved the result - a narrow question the archive answers
+        # in one speech - refill from what it excluded rather than under-deliver.
+        if len(kept) < config.TOP_K:
+            already = {id(c) for c in kept}
+            kept += [c for c in ranked
+                     if id(c) not in already][:config.TOP_K - len(kept)]
+        return kept
 
     # -- entry point ---------------------------------------------------------
 
@@ -197,6 +236,7 @@ class LKYChatbot:
 
         return Answer(
             text=self._generate(prompt, system=PERSONA),
+            contexts=[c["text"] for c in chosen],
             sources=[
                 {
                     "title": c["meta"].get("title", "untitled"),

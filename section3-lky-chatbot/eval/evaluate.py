@@ -75,10 +75,40 @@ Reply with JSON only:
 
 METRICS = ["faithfulness", "answer_relevancy", "context_relevancy", "persona_fidelity"]
 
+DECLINE_CHECK = """Here is a chatbot's reply to a question it was not supposed to
+be able to answer.
+
+REPLY
+{answer}
+
+Did the chatbot decline - saying it lacks the information, that its sources do
+not cover this, or that the question falls outside what it can speak to?
+Answer with exactly one word: YES or NO."""
+
+
+def declined(client, answer: str) -> bool:
+    """Did the system refuse, by whichever mechanism?
+
+    There are two independent defences against answering an unanswerable
+    question: the relevance floor stops retrieval before generation, and the
+    grounding rules in the system prompt make the model decline. An earlier
+    version of this harness measured only the first, by checking whether the
+    floor had fired. It scored a correct, explicit refusal - "the archive does
+    not reach 2024" - as a FAILURE, because the floor had not been the thing
+    that caught it. The metric was punishing right behaviour for arriving
+    through the wrong door. What matters to a user is that the system declined.
+    """
+    reply = client.models.generate_content(
+        model=config.JUDGE_MODEL,
+        contents=DECLINE_CHECK.format(answer=answer),
+        config=types.GenerateContentConfig(temperature=0.0),
+    )
+    return (reply.text or "").strip().upper().startswith("YES")
+
 
 def judge(client, question: str, context: str, answer: str) -> dict:
     response = client.models.generate_content(
-        model=config.CHAT_MODEL,
+        model=config.JUDGE_MODEL,
         contents=RUBRIC.format(question=question, context=context, answer=answer),
         config=types.GenerateContentConfig(
             temperature=0.0,
@@ -94,9 +124,10 @@ def judge(client, question: str, context: str, answer: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0)
-    # A graded case costs three model calls (rerank, generate, judge) against a
-    # free tier metered per minute. Pacing between cases is cheaper than
-    # retrying into an exhausted quota.
+    # A graded case costs three model calls (rerank, generate, judge). The free
+    # tier caps generation per DAY, not per minute, so pacing cannot buy more
+    # headroom - it only avoids tripping the per-minute limit on top of it. The
+    # three calls are split across three models partly for this reason.
     parser.add_argument("--delay", type=float, default=12.0,
                         help="seconds between cases; lower it on a paid tier")
     args = parser.parse_args()
@@ -107,28 +138,62 @@ def main() -> int:
         cases = cases[:args.limit]
 
     bot = LKYChatbot()
-    scored, refusals, rows = [], [], []
+    scored, refusals, rows, failures = [], [], [], []
+    floor_stops = []  # of the refusals, how many the relevance floor caught
+
+    # A previous run's report must not survive this one. If this run dies
+    # halfway, a stale results.md sitting on disk reads as current and is worse
+    # than no file at all - the same trap as an eval that scores blind.
+    REPORT.unlink(missing_ok=True)
 
     for index, case in enumerate(cases):
         if index:
             time.sleep(args.delay)
         print(f"  {case['id']}: {case['question'][:60]}...")
-        answer = bot.ask(case["question"])
+        try:
+            answer = bot.ask(case["question"])
+        except Exception as exc:
+            # Usually a quota wall. Record it and keep going: a report covering
+            # 12 of 15 cases with the gap named is useful, losing all 12 is not.
+            reason = type(exc).__name__
+            print(f"       FAILED ({reason})")
+            failures.append((case["id"], reason))
+            continue
 
         if not case["expect_grounded"]:
             # Out-of-corpus question: declining is the only correct behaviour,
             # so this is pass/fail rather than a graded score.
-            passed = not answer.grounded
+            try:
+                passed = declined(bot.client, answer.text)
+            except Exception as exc:
+                print(f"       decline check FAILED ({type(exc).__name__})")
+                failures.append((case["id"], f"decline check: {type(exc).__name__}"))
+                continue
             refusals.append(passed)
+            floor_stops.append(not answer.grounded)
             rows.append({
                 "id": case["id"], "kind": "refusal", "question": case["question"],
-                "passed": passed, "answer": answer.text,
+                "passed": passed, "by_floor": not answer.grounded,
+                "answer": answer.text,
             })
             continue
 
+        # The judge scores faithfulness by checking each claim against the
+        # source text, so it must receive the excerpts themselves. An earlier
+        # version passed only (title, year) pairs. The judge dutifully returned
+        # near-zero faithfulness and context_relevancy on every case, and the
+        # result read like a broken retriever rather than a broken harness -
+        # the failure mode of an eval that is itself wrong.
         context = "\n\n".join(
-            f"({s['title']}, {s['year']})" for s in answer.sources)
-        verdict = judge(bot.client, case["question"], context, answer.text)
+            f"[{i + 1}] ({src['title']}, {src['year']})\n{text}"
+            for i, (src, text) in enumerate(zip(answer.sources, answer.contexts))
+        )
+        try:
+            verdict = judge(bot.client, case["question"], context, answer.text)
+        except Exception as exc:
+            print(f"       judge FAILED ({type(exc).__name__})")
+            failures.append((case["id"], f"judge: {type(exc).__name__}"))
+            continue
         scored.append(verdict)
         rows.append({
             "id": case["id"], "kind": "graded", "question": case["question"],
@@ -137,9 +202,23 @@ def main() -> int:
 
     # -- report --------------------------------------------------------------
     lines = ["# Evaluation results", ""]
-    lines.append(f"Model: `{config.CHAT_MODEL}` · Embeddings: "
-                 f"`{config.EMBED_MODEL}` · top_k={config.TOP_K} "
-                 f"(reranked from {config.CANDIDATE_K})")
+    lines.append(f"Generator: `{config.CHAT_MODEL}` · Judge: "
+                 f"`{config.JUDGE_MODEL}` · Rerank/rewrite: "
+                 f"`{config.UTILITY_MODEL}`  ")
+    lines.append(f"Embeddings: `{config.EMBED_MODEL}` "
+                 f"({config.EMBED_DIM}-dim) · top_k={config.TOP_K} reranked "
+                 f"from {config.CANDIDATE_K} · floor={config.MIN_RELEVANCE}")
+    lines.append("")
+    graded = len(scored)
+    lines.append(f"Coverage: {graded + len(refusals)}/{len(cases)} cases "
+                 f"({graded} graded, {len(refusals)} refusal checks)")
+    if failures:
+        lines.append("")
+        lines.append("> **Partial run.** These cases did not complete, so the "
+                     "aggregate below covers only the cases that did:")
+        lines.append("")
+        for case_id, reason in failures:
+            lines.append(f"> - `{case_id}` — {reason}")
     lines.append("")
     lines.append("## Aggregate")
     lines.append("")
@@ -152,6 +231,10 @@ def main() -> int:
                          f"| {min(values):.2f} |")
     if refusals:
         lines.append(f"| refusal_accuracy | {sum(refusals)}/{len(refusals)} | |")
+        lines.append(f"| ├ stopped by the relevance floor | "
+                     f"{sum(floor_stops)}/{len(refusals)} | |")
+        lines.append(f"| └ stopped by the grounding prompt | "
+                     f"{sum(refusals) - sum(floor_stops)}/{len(refusals)} | |")
     lines.append("")
     lines.append("## Per-case")
     lines.append("")
@@ -160,8 +243,11 @@ def main() -> int:
         lines.append(f"### {row['id']} — {row['question']}")
         lines.append("")
         if row["kind"] == "refusal":
+            caught = ("relevance floor" if row["by_floor"]
+                      else "grounding rules in the prompt")
             lines.append(f"Expected a refusal. "
-                         f"**{'PASS' if row['passed'] else 'FAIL'}**")
+                         f"**{'PASS' if row['passed'] else 'FAIL'}** "
+                         f"— caught by the {caught}.")
         else:
             lines.append(" · ".join(
                 f"{m}: {float(row.get(m, 0) or 0):.2f}" for m in METRICS))
@@ -184,7 +270,8 @@ def main() -> int:
         if values:
             print(f"  {metric:18s} {statistics.mean(values):.2f}")
     if refusals:
-        print(f"  {'refusal_accuracy':18s} {sum(refusals)}/{len(refusals)}")
+        print(f"  {'refusal_accuracy':18s} {sum(refusals)}/{len(refusals)} "
+              f"(floor caught {sum(floor_stops)})")
     return 0
 
 
