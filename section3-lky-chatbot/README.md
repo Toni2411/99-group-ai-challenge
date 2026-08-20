@@ -128,9 +128,12 @@ candidates when the cap would otherwise under-deliver.
 designed.** The intent was three models: the best available for generation, a
 lite model for the mechanical work (query rewriting, reranking), and a third for
 judging. The free tier forced a compromise. It caps the full flash models at
-**20 generate requests per day**, and one eval run costs ~27 calls, so a single
-evaluation exhausts the day's quota before finishing. Generation had to move
-down to the lite model, where the utility calls already were.
+**20 generate requests per day, per model**. One eval run costs 39 calls — 12
+generation, 12 rerank, 15 judge and decline-checks — so the generation calls fit
+inside the cap but leave only 8 for anything else that day. Between debugging
+runs and the Section 2 workflow hitting the same model, that headroom vanished
+and an eval run died partway through. Generation moved down to the lite model,
+where the utility calls already were.
 
 The half of the split that survived is the one that matters: the judge is
 deliberately a *different generation* from the generator, because a model
