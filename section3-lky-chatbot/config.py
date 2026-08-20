@@ -16,7 +16,8 @@ CHROMA_DIR = ROOT / "chroma_db"
 COLLECTION = "lky"
 
 # --- Models -----------------------------------------------------------------
-# Three roles, three models, for two separate reasons.
+# Three roles, two models. The intent below was three; the free tier had
+# other ideas, and the note further down records what actually happened.
 #
 # Quality: generation is the only step whose output a human reads, so it gets
 # the strongest model. Query rewriting and reranking are mechanical - pick the

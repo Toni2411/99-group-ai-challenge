@@ -124,12 +124,23 @@ a little depth on the best-matching speech for breadth across the archive, which
 is the better trade for open-ended questions, and refills from the excluded
 candidates when the cap would otherwise under-deliver.
 
-**Why three models, not one.** Generation is the only step a human reads, so it
-gets the best model available. Query rewriting and reranking are mechanical and
-run on a lite model. The eval judge is deliberately a *different generation*
-from the generator: a model scoring its own output inflates faithfulness,
-because it finds its own reasoning persuasive. Not true independence — all
-three are Gemini — but meaningfully better than grading your own homework.
+**Why the models are split by role — and why the split is not the one I
+designed.** The intent was three models: the best available for generation, a
+lite model for the mechanical work (query rewriting, reranking), and a third for
+judging. The free tier forced a compromise. It caps the full flash models at
+**20 generate requests per day**, and one eval run costs ~27 calls, so a single
+evaluation exhausts the day's quota before finishing. Generation had to move
+down to the lite model, where the utility calls already were.
+
+The half of the split that survived is the one that matters: the judge is
+deliberately a *different generation* from the generator, because a model
+scoring its own output inflates faithfulness — it finds its own reasoning
+persuasive. Not true independence, since both are Gemini, but meaningfully
+better than grading your own homework.
+
+Moving generation to `flash-lite` cost real quality — `persona_fidelity` fell
+from 0.82 to 0.67. On a paid tier `CHAT_MODEL` moves back up and nothing else
+in the pipeline changes.
 
 **Why content-hash chunk ids.** Re-running `ingest.py` after editing one
 document re-embeds only that document's chunks. On a free API tier with rate
