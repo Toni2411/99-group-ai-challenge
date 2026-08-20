@@ -224,7 +224,7 @@ recover it without touching the retrieval pipeline.
 ## Corpus
 
 26 speech transcripts from the National Archives of Singapore, one per year
-across 1965–1989, totalling ~268,000 characters and 219 indexed chunks.
+across 1965–1989, totalling ~261,000 characters and 219 indexed chunks.
 `fetch_corpus.py` reproduces it in one command.
 
 Sampling one speech per year rather than crawling sequentially is deliberate: a
