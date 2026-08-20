@@ -51,11 +51,13 @@ data/corpus/*.txt
       ▼
   relevance floor       all candidates < 0.59 similarity ⇒ refuse, stop here
       ▼
-  rerank()              LLM scores usefulness, keeps top-6
+  rerank()              lite model scores usefulness
       ▼
-  gemini-2.5-flash      persona + grounding rules + cited excerpts
+  _diversify()          max 2 chunks per document, keeps top-6
       ▼
-  Answer(text, sources[], grounded)
+  CHAT_MODEL            persona + grounding rules + cited excerpts
+      ▼
+  Answer(text, sources[], contexts[], grounded)
 ```
 
 ## Design decisions
@@ -114,6 +116,21 @@ guess that silently disables a guardrail is worse than having no guardrail at
 all — at least an absent one is visible. Re-run the calibration whenever the
 embedding model or `EMBED_DIM` changes.
 
+**Why chunks are capped per document.** Adjacent chunks of one speech are
+near-duplicates by construction — they overlap by 200 characters and argue the
+same point. Retrieval was filling six context slots from three documents, and
+the eval judge kept flagging the excerpts as redundant. `MAX_PER_DOC = 2` trades
+a little depth on the best-matching speech for breadth across the archive, which
+is the better trade for open-ended questions, and refills from the excluded
+candidates when the cap would otherwise under-deliver.
+
+**Why three models, not one.** Generation is the only step a human reads, so it
+gets the best model available. Query rewriting and reranking are mechanical and
+run on a lite model. The eval judge is deliberately a *different generation*
+from the generator: a model scoring its own output inflates faithfulness,
+because it finds its own reasoning persuasive. Not true independence — all
+three are Gemini — but meaningfully better than grading your own homework.
+
 **Why content-hash chunk ids.** Re-running `ingest.py` after editing one
 document re-embeds only that document's chunks. On a free API tier with rate
 limits, that is the difference between a 5-second update and a full rebuild.
@@ -136,12 +153,59 @@ The three out-of-corpus cases are scored as hard pass/fail on `refusal_accuracy`
 — a question about a 2024 election or about cryptocurrency has exactly one
 correct behaviour, and a graded score would let a fluent fabrication pass.
 
+**Measure the behaviour, not the mechanism.** There are two independent
+defences against answering an unanswerable question: the relevance floor stops
+retrieval before generation, and the grounding rules make the model decline.
+The first version of this harness checked only whether the floor had fired, and
+scored this reply as a FAILURE:
+
+> *"The provided archive does not reach the year 2024, so I cannot comment on
+> the 2024 Singapore general election result."*
+
+That is a correct refusal. The question is about Singapore politics, so
+retrieval cleared the floor and the prompt caught it instead — right answer,
+wrong door. A metric that punishes correct behaviour for arriving through the
+unexpected path is worse than no metric, because it will drive you to "fix" a
+system that is working. The harness now asks whether the system declined, and
+reports separately which layer caught it.
+
 **A judge is not ground truth.** Every judgement is written to
 `eval/results.md` with the full answer and the retrieved citations so a human
 can audit it. The aggregate is a signal for tuning chunk size, `top_k` and the
 relevance floor — not a certificate of correctness.
 
-Results are in [`eval/results.md`](eval/results.md).
+### Results
+
+15/15 cases, generator `gemini-3.5-flash-lite`, judge `gemini-3.1-flash-lite`.
+
+| Metric | Mean | Min |
+|---|---|---|
+| faithfulness | **1.00** | 1.00 |
+| answer_relevancy | 0.87 | 0.50 |
+| context_relevancy | 0.47 | 0.00 |
+| persona_fidelity | 0.67 | 0.20 |
+| refusal_accuracy | **3/3** | |
+| ├ stopped by the relevance floor | 2/3 | |
+| └ stopped by the grounding prompt | 1/3 | |
+
+Full per-case output, with every answer and its citations, is in
+[`eval/results.md`](eval/results.md).
+
+**Faithfulness is the number that matters here, and it is 1.00 across every
+case** — no invented quotations, dates or statistics. That is the failure this
+system was built to prevent, and both refusal layers demonstrably fire.
+
+**`context_relevancy` at 0.47 is the honest weak spot.** Roughly half of what
+the retriever hands the generator is not useful. The answers survive it because
+the generator ignores the noise, but that is luck rather than design: more noise
+in the prompt is more opportunity to drift. A cross-encoder reranker is the
+obvious fix.
+
+**`persona_fidelity` at 0.67 is a cost I chose.** It measured 0.82 when
+generation ran on the full `gemini-3.5-flash`. Moving to `flash-lite` — forced
+by the 20-requests-per-day free tier cap, which one eval run exhausts on its
+own — flattened the voice. On a paid tier, moving `CHAT_MODEL` back up should
+recover it without touching the retrieval pipeline.
 
 ## Corpus
 
